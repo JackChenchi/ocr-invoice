@@ -1,0 +1,14 @@
+# railpack.toml
+[provider]
+# 强制指定使用 Python 环境
+name = "python"
+
+[build]
+# 指定你的主程序入口（根据实际情况调整，如果 main.py 在 backend 里就写 backend/main.py）
+entrypoint = "main:app"
+
+# 安装依赖命令（如果 requirements.txt 在 backend 里，请改为 pip install -r backend/requirements.txt）
+install = "pip install -r requirements.txt"
+
+# 启动命令
+start = "uvicorn main:app --host 0.0.0.0 --port $PORT"
