@@ -30,3 +30,7 @@ app.include_router(invoice.router, prefix="/invoice", tags=["invoice"])
 @app.get("/")
 def read_root():
     return {"message": "Welcome to Invoice OCR System"}
+
+@app.get("/api/health")
+def health_check():
+    return {"status": "healthy"}

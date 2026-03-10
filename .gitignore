@@ -20,3 +20,6 @@ dist/
 
 # DB
 mysql_data/
+
+# Local backup
+.local_backup/
