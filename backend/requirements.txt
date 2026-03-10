@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+celery[redis]
+pydantic
+python-dotenv
+pymysql
+python-jose[cryptography]
+passlib[bcrypt]
+Pillow
+opencv-python-headless
+numpy
+openpyxl
+python-multipart
+paddleocr>=2.6.0
+pydantic-settings

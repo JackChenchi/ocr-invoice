@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ocr-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/ocr.db:/app/ocr.db
+    environment:
+      - DATABASE_URL=sqlite:///./ocr.db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - redis
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ocr-worker
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/ocr.db:/app/ocr.db
+    environment:
+      - DATABASE_URL=sqlite:///./ocr.db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - backend
+      - redis
+    command: celery -A app.core.celery_app worker --loglevel=info
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ocr-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+  redis:
+    image: redis:7.0-alpine
+    container_name: ocr-redis
+    ports:
+      - "6379:6379"
