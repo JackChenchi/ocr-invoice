@@ -4,6 +4,7 @@ ARG CACHEBUST=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
 
 RUN apt-get update && apt-get install -y \
     libgl1 \
@@ -25,7 +26,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 COPY . .
 
-RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(use_angle_cls=True, lang='en', use_gpu=False, show_log=False)"
+RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(lang='en', use_gpu=False)"
 
 RUN mkdir -p uploads
 

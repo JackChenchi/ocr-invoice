@@ -13,12 +13,7 @@ def _get_ocr_instance():
     global _ocr_instance
     if _ocr_instance is None:
         from paddleocr import PaddleOCR
-        _ocr_instance = PaddleOCR(
-            use_angle_cls=True,
-            lang='en',
-            use_gpu=False,
-            show_log=False
-        )
+        _ocr_instance = PaddleOCR(lang='en', use_gpu=False)
     return _ocr_instance
 
 def _preprocess_image(image_path: str) -> str:
@@ -81,13 +76,13 @@ class OCRService:
 
             ocr = _get_ocr_instance()
             
-            result = ocr.ocr(image_path, cls=True)
+            result = ocr.ocr(image_path)
             
             preprocessed_path = None
             if not _is_ocr_result_good(result):
                 preprocessed_path = _preprocess_image(image_path)
                 if preprocessed_path != image_path:
-                    preprocessed_result = ocr.ocr(preprocessed_path, cls=True)
+                    preprocessed_result = ocr.ocr(preprocessed_path)
                     if _is_ocr_result_good(preprocessed_result):
                         result = preprocessed_result
             
