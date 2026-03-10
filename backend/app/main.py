@@ -6,8 +6,21 @@ from app.core.config import settings
 from app.db.base_class import Base
 from app.db.session import engine
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title=settings.PROJECT_NAME, openapi_url=f"{settings.API_V1_STR}/openapi.json")
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Preloading OCR model...")
+    try:
+        from app.services.ocr_service import _get_ocr_instance
+        _get_ocr_instance()
+        logger.info("OCR model loaded successfully")
+    except Exception as e:
+        logger.error(f"Failed to load OCR model: {e}")
 
 app.add_middleware(
     CORSMiddleware,
