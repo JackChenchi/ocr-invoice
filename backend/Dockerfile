@@ -19,7 +19,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir paddlepaddle==2.6.0 && \
+    pip install --no-cache-dir paddlepaddle==3.0.0 && \
     pip install --no-cache-dir -r requirements.txt
 
 COPY . .
