@@ -1,7 +1,8 @@
 from typing import List
-from pydantic import AnyHttpUrl, validator, field_validator
+from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings
 import os
+import json
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "OCR Batch Processing System"
@@ -16,38 +17,36 @@ class Settings(BaseSettings):
 
     BACKEND_CORS_ORIGINS: List[str] = []
 
-    def __init__(self, **data):
-        super().__init__(**data)
-        # 如果环境变量中有 BACKEND_CORS_ORIGINS，使用它
-        cors_origins_env = os.getenv("BACKEND_CORS_ORIGINS")
-        if cors_origins_env:
-            self.BACKEND_CORS_ORIGINS = cors_origins_env.split(",")
-        else:
-            # 否则使用默认值
-            self.BACKEND_CORS_ORIGINS = [
-                "http://localhost:5173",
-                "http://localhost:5174",
-                "http://127.0.0.1:5173",
-                "http://127.0.0.1:5174",
-                "https://ocr-frontend.zeabur.app",
-                "https://ocr-web.zeabur.app"
-            ]
+    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        if isinstance(v, str):
+            # 如果是字符串，按逗号分割
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        elif isinstance(v, list):
+            return v
+        return []
 
-    @validator("CELERY_BROKER_URL", pre=True)
-    def assemble_celery_broker(cls, v: str | None, values: dict[str, any]) -> str:
+    @field_validator("CELERY_BROKER_URL", mode="before")
+    @classmethod
+    def assemble_celery_broker(cls, v, info):
         if isinstance(v, str) and v:
             return v
-        return f"redis://{values.get('REDIS_HOST')}:{values.get('REDIS_PORT')}/0"
+        redis_host = info.data.get('REDIS_HOST', 'localhost')
+        redis_port = info.data.get('REDIS_PORT', '6379')
+        return f"redis://{redis_host}:{redis_port}/0"
 
-    @validator("CELERY_RESULT_BACKEND", pre=True)
-    def assemble_celery_backend(cls, v: str | None, values: dict[str, any]) -> str:
+    @field_validator("CELERY_RESULT_BACKEND", mode="before")
+    @classmethod
+    def assemble_celery_backend(cls, v, info):
         if isinstance(v, str) and v:
             return v
-        return f"redis://{values.get('REDIS_HOST')}:{values.get('REDIS_PORT')}/1"
+        redis_host = info.data.get('REDIS_HOST', 'localhost')
+        redis_port = info.data.get('REDIS_PORT', '6379')
+        return f"redis://{redis_host}:{redis_port}/1"
 
     class Config:
         case_sensitive = True
         env_file = ".env"
 
 settings = Settings()
-
