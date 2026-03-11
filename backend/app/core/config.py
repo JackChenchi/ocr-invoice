@@ -1,6 +1,7 @@
-from typing import List, Union
-from pydantic import AnyHttpUrl, validator
+from typing import List
+from pydantic import AnyHttpUrl, validator, field_validator
 from pydantic_settings import BaseSettings
+import os
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "OCR Batch Processing System"
@@ -13,7 +14,24 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = ""
     CELERY_RESULT_BACKEND: str = ""
 
-    BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:5173", "http://127.0.0.1:5174"]
+    BACKEND_CORS_ORIGINS: List[str] = []
+
+    def __init__(self, **data):
+        super().__init__(**data)
+        # 如果环境变量中有 BACKEND_CORS_ORIGINS，使用它
+        cors_origins_env = os.getenv("BACKEND_CORS_ORIGINS")
+        if cors_origins_env:
+            self.BACKEND_CORS_ORIGINS = cors_origins_env.split(",")
+        else:
+            # 否则使用默认值
+            self.BACKEND_CORS_ORIGINS = [
+                "http://localhost:5173",
+                "http://localhost:5174",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:5174",
+                "https://ocr-frontend.zeabur.app",
+                "https://ocr-web.zeabur.app"
+            ]
 
     @validator("CELERY_BROKER_URL", pre=True)
     def assemble_celery_broker(cls, v: str | None, values: dict[str, any]) -> str:
@@ -32,3 +50,4 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 settings = Settings()
+
