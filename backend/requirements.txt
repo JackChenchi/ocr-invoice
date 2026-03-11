@@ -9,7 +9,7 @@ python-jose[cryptography]
 passlib[bcrypt]
 Pillow
 opencv-python-headless
-numpy
+numpy<2
 openpyxl
 python-multipart
 paddleocr==2.7.0.3
