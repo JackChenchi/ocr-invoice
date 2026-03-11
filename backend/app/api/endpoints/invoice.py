@@ -253,23 +253,6 @@ def get_invoice(
         raise HTTPException(status_code=404, detail="发票记录不存在")
     return result
 
-@router.delete("/{id}")
-def delete_invoice(
-    *,
-    db: Session = Depends(deps.get_db),
-    id: int,
-) -> Any:
-    result = db.query(models.ocr.InvoiceResult).filter(models.ocr.InvoiceResult.id == id).first()
-    if not result:
-        raise HTTPException(status_code=404, detail="发票记录不存在")
-    
-    if result.image_url and os.path.exists(result.image_url):
-        os.remove(result.image_url)
-    
-    db.delete(result)
-    db.commit()
-    return {"message": "删除成功"}
-
 @router.delete("/batch/all")
 def delete_all_invoices(
     *,
@@ -289,6 +272,23 @@ def delete_all_invoices(
     
     db.commit()
     return {"message": f"成功删除 {deleted_count} 条记录", "deleted_count": deleted_count}
+
+@router.delete("/{id}")
+def delete_invoice(
+    *,
+    db: Session = Depends(deps.get_db),
+    id: int,
+) -> Any:
+    result = db.query(models.ocr.InvoiceResult).filter(models.ocr.InvoiceResult.id == id).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="发票记录不存在")
+    
+    if result.image_url and os.path.exists(result.image_url):
+        os.remove(result.image_url)
+    
+    db.delete(result)
+    db.commit()
+    return {"message": "删除成功"}
 
 @router.post("/export")
 def export_invoices(
