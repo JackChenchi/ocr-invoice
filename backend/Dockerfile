@@ -17,13 +17,13 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY backend/requirements.txt ./requirements.txt
 
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir paddlepaddle==3.0.0 && \
     pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY backend/ .
 
 RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(lang='en')"
 
