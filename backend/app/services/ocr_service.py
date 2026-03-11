@@ -13,7 +13,7 @@ def _get_ocr_instance():
     global _ocr_instance
     if _ocr_instance is None:
         from paddleocr import PaddleOCR
-        _ocr_instance = PaddleOCR(lang='en', use_gpu=False)
+        _ocr_instance = PaddleOCR(lang='en')
     return _ocr_instance
 
 def _preprocess_image(image_path: str) -> str:

@@ -26,7 +26,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 COPY . .
 
-RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(lang='en', use_gpu=False)"
+RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(lang='en')"
 
 RUN mkdir -p uploads
 
