@@ -31,8 +31,8 @@ app.mount("/api/uploads", StaticFiles(directory=upload_dir), name="uploads")
 app.include_router(ocr.router, prefix="/api/ocr", tags=["ocr"])
 app.include_router(invoice.router, prefix="/api/invoice", tags=["invoice"])
 
-@app.get("/")
-def read_root():
+@app.get("/api")
+def api_root():
     return {"message": "Welcome to Invoice OCR System"}
 
 @app.get("/api/health")
