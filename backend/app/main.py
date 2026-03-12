@@ -44,9 +44,9 @@ def health_check_plain():
     return {"status": "healthy"}
 
 # Serve built frontend (Vite) in production deployments.
-frontend_dist_dir = os.path.join(os.path.dirname(__file__), "..", "..", "frontend_dist")
-frontend_dist_dir = os.path.abspath(frontend_dist_dir)
-if os.path.isdir(frontend_dist_dir):
+# Frontend is copied to /app/frontend_dist in Dockerfile.
+frontend_dist_dir = os.path.abspath(os.getenv("FRONTEND_DIST_DIR", "/app/frontend_dist"))
+try:
     app.mount("/", StaticFiles(directory=frontend_dist_dir, html=True), name="frontend")
 
     @app.get("/{full_path:path}", include_in_schema=False)
@@ -55,3 +55,6 @@ if os.path.isdir(frontend_dist_dir):
         if os.path.exists(index_path):
             return FileResponse(index_path)
         return {"detail": "Frontend not built"}
+except RuntimeError:
+    # Static files directory may not exist in some environments; ignore in that case.
+    pass
