@@ -21,9 +21,18 @@ class Settings(BaseSettings):
     @classmethod
     def parse_cors_origins(cls, v):
         if isinstance(v, str):
-            # 如果是字符串，按逗号分割
+            v = v.strip()
+            if not v:
+                return []
+            if v.startswith("["):
+                try:
+                    data = json.loads(v)
+                    if isinstance(data, list):
+                        return data
+                except Exception:
+                    pass
             return [origin.strip() for origin in v.split(",") if origin.strip()]
-        elif isinstance(v, list):
+        if isinstance(v, list):
             return v
         return []
 

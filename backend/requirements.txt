@@ -12,5 +12,6 @@ opencv-python-headless
 numpy<2
 openpyxl
 python-multipart
+paddlepaddle==2.6.2
 paddleocr==2.7.0.3
 pydantic-settings

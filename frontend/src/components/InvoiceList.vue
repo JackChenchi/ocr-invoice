@@ -146,7 +146,9 @@ import api from '../services/api'
 
 const { t } = useI18n()
 
-const API_BASE = 'http://localhost:8000'
+const API_BASE = (import.meta.env?.VITE_API_URL && import.meta.env.VITE_API_URL.trim())
+  ? import.meta.env.VITE_API_URL.replace(/\/+$/, '')
+  : (window.location.origin + '/api')
 
 const getImageUrl = (imagePath) => {
   if (!imagePath) return ''
