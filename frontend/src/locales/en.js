@@ -16,10 +16,12 @@ export default {
     search: 'Search',
     reset: 'Reset',
     detail: 'Detail',
-    actions: 'Actions'
+    actions: 'Actions',
+    yes: 'Yes',
+    no: 'No'
   },
   header: {
-    title: 'Invoice Recognition & Export System',
+    title: 'Shenyan System',
     switchLang: 'Switch Language'
   },
   stats: {
@@ -53,6 +55,16 @@ export default {
     notInvoice: 'Not Invoice',
     image: 'Image',
     transactionCode: 'Transaction Code',
+    transactionDate: 'Date',
+    receiverAccount: 'Receiver Account/Name',
+    currency: 'Currency',
+    startDate: 'Start Date',
+    endDate: 'End Date',
+    exportFields: 'Export Fields',
+    includeImages: 'Include images (slow)',
+    needsReview: 'Needs Review',
+    reviewYes: 'Yes',
+    reviewNo: 'No',
     amount: 'Amount',
     missing: 'Missing',
     imageLoadFailed: 'Image load failed',
@@ -65,6 +77,27 @@ export default {
     recognizeSuccess: 'Recognized',
     recognizeFailed: 'Recognition Failed',
     processing: 'Processing'
+  },
+  auth: {
+    title: 'Sign In',
+    username: 'Username',
+    password: 'Password',
+    login: 'Sign In',
+    logout: 'Sign Out',
+    loginFailed: 'Login failed, please check your credentials'
+  },
+  user: {
+    title: 'User Management',
+    manage: 'Users',
+    adminOnly: 'Admin only',
+    username: 'Username',
+    password: 'Password',
+    isAdmin: 'Admin',
+    create: 'Create User',
+    fillAll: 'Please fill username and password',
+    list: 'User List',
+    delete: 'Delete',
+    confirmDelete: 'Are you sure you want to delete this user?'
   },
   invoice: {
     invoiceNumber: 'Invoice Number',

@@ -1,20 +1,22 @@
 import os
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from PIL import Image, ImageEnhance, ImageFilter
 import numpy as np
 import cv2
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
-_ocr_instance = None
+_ocr_instances = {}
 
-def _get_ocr_instance():
-    global _ocr_instance
-    if _ocr_instance is None:
+def _get_ocr_instance(lang: str):
+    global _ocr_instances
+    if lang not in _ocr_instances:
         from paddleocr import PaddleOCR
-        _ocr_instance = PaddleOCR(lang='en')
-    return _ocr_instance
+        _ocr_instances[lang] = PaddleOCR(lang=lang)
+    return _ocr_instances[lang]
 
 def _preprocess_image(image_path: str) -> str:
     img = cv2.imread(image_path)
@@ -65,26 +67,70 @@ def _is_ocr_result_good(result) -> bool:
     
     avg_confidence = total_confidence / text_count if text_count > 0 else 0
     
-    return avg_confidence > 0.7 and text_count > 10
+    return avg_confidence > 0.6 and text_count > 8
+
+
+def _score_ocr_result(result) -> float:
+    if not result or not result[0]:
+        return 0.0
+    text_count = 0
+    total_confidence = 0.0
+    total_chars = 0
+    for line in result[0]:
+        if line and len(line) >= 2:
+            text = line[1][0]
+            confidence = line[1][1]
+            if text and text.strip():
+                text_count += 1
+                total_confidence += confidence
+                total_chars += len(text.strip())
+    if text_count == 0:
+        return 0.0
+    avg_confidence = total_confidence / text_count
+    length_factor = min(1.0, total_chars / 200.0)
+    return avg_confidence * (0.5 + 0.5 * length_factor)
 
 class OCRService:
     @staticmethod
-    def process_image(image_path: str, lang: str = 'en') -> Dict[str, Any]:
+    def process_image(image_path: str, lang: Optional[str] = None) -> Dict[str, Any]:
         try:
             if not os.path.exists(image_path):
                 raise FileNotFoundError(f"Image not found at {image_path}")
 
-            ocr = _get_ocr_instance()
+            if lang:
+                langs: List[str] = [lang]
+            else:
+                langs = [l.strip() for l in settings.OCR_LANGS.split(",") if l.strip()]
+                if not langs:
+                    langs = ["ch"]
+
+            best_result = None
+            best_score = 0.0
+            for l in langs:
+                ocr = _get_ocr_instance(l)
+                result = ocr.ocr(image_path)
+                score = _score_ocr_result(result)
+                if score > best_score:
+                    best_score = score
+                    best_result = result
             
-            result = ocr.ocr(image_path)
+            result = best_result
             
             preprocessed_path = None
             if not _is_ocr_result_good(result):
                 preprocessed_path = _preprocess_image(image_path)
                 if preprocessed_path != image_path:
-                    preprocessed_result = ocr.ocr(preprocessed_path)
-                    if _is_ocr_result_good(preprocessed_result):
-                        result = preprocessed_result
+                    best_result = None
+                    best_score = 0.0
+                    for l in langs:
+                        ocr = _get_ocr_instance(l)
+                        preprocessed_result = ocr.ocr(preprocessed_path)
+                        score = _score_ocr_result(preprocessed_result)
+                        if score > best_score:
+                            best_score = score
+                            best_result = preprocessed_result
+                    if best_result and _is_ocr_result_good(best_result):
+                        result = best_result
             
             if preprocessed_path and preprocessed_path != image_path and os.path.exists(preprocessed_path):
                 try:

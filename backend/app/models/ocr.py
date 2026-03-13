@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Float, DateTime, Text, JSON, Enu
 from sqlalchemy.sql import func
 import enum
 from app.db.base_class import Base
+from sqlalchemy import ForeignKey
 
 class OCRStatus(str, enum.Enum):
     PENDING = "pending"
@@ -35,6 +36,7 @@ class InvoiceResult(Base):
     __tablename__ = "invoice_results"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     file_name = Column(String(255), nullable=False)
     file_size = Column(Integer, nullable=False)
     upload_time = Column(DateTime, server_default=func.now(), nullable=False)

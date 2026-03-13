@@ -12,7 +12,7 @@ import uuid
 import time
 from app.core.config import settings
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(deps.get_current_user)])
 
 UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR):

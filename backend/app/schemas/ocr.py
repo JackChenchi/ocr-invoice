@@ -76,6 +76,8 @@ class InvoiceResultResponse(InvoiceResultBase):
     transaction_reference: Optional[str] = None
     transaction_date: Optional[str] = None
     transaction_time: Optional[str] = None
+    receiver_account: Optional[str] = None
+    receiver_account_name: Optional[str] = None
     
     is_invoice: bool = True
     invoice_confidence: float = 0.0
@@ -83,6 +85,7 @@ class InvoiceResultResponse(InvoiceResultBase):
     validation_score: float = 0.0
     validation_errors: Optional[List[str]] = None
     validation_warnings: Optional[List[str]] = None
+    needs_review: Optional[bool] = None
 
     class Config:
         from_attributes = True
@@ -96,6 +99,10 @@ class InvoiceListResponse(BaseModel):
 class InvoiceExportRequest(BaseModel):
     invoice_ids: Optional[List[int]] = None
     export_all: bool = False
+    fields: Optional[List[str]] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    include_images: bool = False
 
 class BatchUploadResponse(BaseModel):
     success_count: int

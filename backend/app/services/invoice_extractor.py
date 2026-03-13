@@ -67,6 +67,35 @@ class BankReceiptInfo:
     extraction_errors: List[str] = field(default_factory=list)
 
 class InvoiceExtractor:
+    @staticmethod
+    def _is_valid_name(name: Optional[str]) -> bool:
+        if not name:
+            return False
+        name = name.strip()
+        if len(name) < 4:
+            return False
+        lower = name.lower()
+        if lower == name and len(name) <= 4:
+            return False
+        invalid_words = [
+            "amount", "etb", "vat", "total", "debit", "credit", "commission",
+            "charge", "bill", "bank", "transaction", "success", "message",
+            "receipt", "account", "payment", "type", "mobile", "banking"
+        ]
+        if any(w in lower for w in invalid_words):
+            return False
+        return True
+
+    @staticmethod
+    def _clean_name(name: Optional[str]) -> Optional[str]:
+        if not name:
+            return None
+        cleaned = re.sub(r"[-\s]*ETB[-\s]*\d+.*$", "", name, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\b(account|receiver|recelver|recolver|reciever)\b.*$", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\b(your|current|can't|cant|reply|learn|more)\b.*$", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\b(yor|cur)\w*.*$", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"[\-–—\s]+$", "", cleaned).strip()
+        return cleaned
     PATTERNS = {
         "invoice_code": [
             r"发票代码[:：]?\s*([A-Za-z0-9]{10,12})",
@@ -151,6 +180,15 @@ class InvoiceExtractor:
         "transaction_date": [
             r"(\d{2}/\d{2}/\d{4})",
             r"(\d{4}[-/]\d{2}[-/]\d{2})",
+            r"(\d{4}[-/]\d{1,2}[-/]\d{1,2})",
+            r"(\d{2}-\d{2}-\d{4})",
+            r"(\d{4}\.\d{2}\.\d{2})",
+            r"(\d{2}\.\d{2}\.\d{4})",
+            r"(?:Payment\s*Date|Transaction\s*Date|Date)[^0-9]{0,10}([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})",
+            r"(?:Payment\s*Date|Transaction\s*Date|Date)[^0-9]{0,10}([0-9]{4}[-/][0-9]{2}[-/][0-9]{2})",
+            r"(\d{4}-\d{2}-\d{2})\d{2}:\d{2}:\d{2}",
+            r"(\d{1,2}/\d{1,2}/\d{4})\d{1,2}:\d{2}",
+            r"(\d{2}[A-Za-z]{3}\d{4})",
             r"Transaction\s*(?:Time|Date)[:\s]*(\d{2}/\d{2}/\d{4})",
         ],
         "transaction_time": [
@@ -175,12 +213,24 @@ class InvoiceExtractor:
         "receiver_account": [
             r"Receiver\s*Account[:\s]*([\d\*]+)",
             r"(?:To|Beneficiary)\s*Account[:\s]*([\d\*]+)",
+            r"Receiver\s+[A-Za-z\u4e00-\u9fff\s/\-\.]+?\s*Account[:\s]*([\d\*]+)",
             r"收款账号[:：]?\s*([\d\*]+)",
+            r"Cr\.?\s*AcctNo[:\s]*([0-9]{6,})",
+            r"Cr\.?\s*A[cg]t?c?tNo[:\s]*([0-9]{6,})",
+            r"Cr\.?\s*A\w{0,3}tNo[:\s]*([0-9]{6,})",
+            r"([0-9]{6,})\s*Cr\.?\s*A\w{0,3}tNo",
+            r"Credit\s*Account[:\s]*([0-9]{6,})",
+            r"CREDITACCOUNT[:\s]*([0-9]{6,})",
+            r"to\s*([0-9]{8,})\b",
+            r"([0-9\*]{4,})\s*Receiver\s*Account",
         ],
         "receiver_account_name": [
             r"Receiver\s*Name[:\s]*([^\n\r]+)",
             r"Beneficiary\s*Name[:\s]*([^\n\r]+)",
             r"收款人[:：]?\s*([^\n\r]+)",
+            r"(?:Receiver|Recelver|Recolver|Reciever)[:\s]*([^\n\r]+)",
+            r"(?:Receiver|Recelver|Recolver|Reciever)\s+([A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)\s*Account",
+            r"Rec[a-z0-9]{2,6}ver\s+([A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)\s*Account",
         ],
         "amount": [
             r"Amount[:\s]*([A-Z]{3})\s*([\d,]+\.?\d*)",
@@ -206,8 +256,20 @@ class InvoiceExtractor:
     }
 
     @staticmethod
+    def normalize_text(text: str) -> str:
+        if not text:
+            return ""
+        cleaned = text
+        cleaned = re.sub(r"(?<=\d)[Oo](?=\d)", "0", cleaned)
+        cleaned = re.sub(r"(?<=\d)[Il](?=\d)", "1", cleaned)
+        cleaned = re.sub(r"(?<=\d)B(?=\d)", "8", cleaned)
+        cleaned = re.sub(r"[\s\t]+", " ", cleaned)
+        return cleaned.strip()
+
+    @staticmethod
     def extract_field(text: str, field_name: str, patterns_dict: Dict = None) -> Optional[str]:
         patterns = patterns_dict.get(field_name, []) if patterns_dict else InvoiceExtractor.PATTERNS.get(field_name, [])
+        text = InvoiceExtractor.normalize_text(text)
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
             if match:
@@ -232,20 +294,80 @@ class InvoiceExtractor:
     def parse_date(date_str: str) -> Optional[str]:
         if not date_str:
             return None
-        
-        date_str = date_str.replace("年", "-").replace("月", "-").replace("日", "")
-        date_str = re.sub(r"[/\-]+", "-", date_str)
-        
+
         try:
-            parts = date_str.split("-")
-            if len(parts) == 3:
-                year = parts[0]
-                month = parts[1].zfill(2)
-                day = parts[2].zfill(2)
+            month_map = {
+                "JAN": "01", "FEB": "02", "MAR": "03", "APR": "04", "MAY": "05", "JUN": "06",
+                "JUL": "07", "AUG": "08", "SEP": "09", "OCT": "10", "NOV": "11", "DEC": "12",
+            }
+            # yyyy-m-d with time glued (e.g. 2026-3-715:08:03)
+            m = re.search(r"(\d{4})[./-](\d{1,2})[./-](\d)(?=\d{1,2}:\d{2})", date_str)
+            if m:
+                year = m.group(1)
+                month = m.group(2).zfill(2)
+                day = m.group(3).zfill(2)
+                month_i = int(month)
+                day_i = int(day)
+                if month_i > 12 and day_i <= 12:
+                    month, day = day, month
+                return f"{year}-{month}-{day}"
+
+            # yyyy-m-d or yyyy/m/d
+            m = re.search(r"(\d{4})[./-](\d{1,2})[./-](\d{1,2})", date_str)
+            if m:
+                year, month, day = m.group(1), m.group(2).zfill(2), m.group(3).zfill(2)
+                month_i = int(month)
+                day_i = int(day)
+                if month_i > 12 and day_i <= 12:
+                    month, day = day, month
+                return f"{year}-{month}-{day}"
+
+            # Month name formats
+            m = re.search(r"([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})", date_str)
+            if m:
+                mon = month_map.get(m.group(1)[:3].upper(), "01")
+                day = m.group(2).zfill(2)
+                year = m.group(3)
+                return f"{year}-{mon}-{day}"
+            m = re.search(r"(\d{1,2})-([A-Za-z]{3})-(\d{4})", date_str)
+            if m:
+                day = m.group(1).zfill(2)
+                mon = month_map.get(m.group(2).upper(), "01")
+                year = m.group(3)
+                return f"{year}-{mon}-{day}"
+            m = re.search(r"(\d{2})([A-Za-z]{3})(\d{4})", date_str)
+            if m:
+                day = m.group(1).zfill(2)
+                mon = month_map.get(m.group(2).upper(), "01")
+                year = m.group(3)
+                return f"{year}-{mon}-{day}"
+
+            # dd/mm/yyyy (assume day-first)
+            m = re.search(r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})", date_str)
+            if m:
+                day = m.group(1).zfill(2)
+                month = m.group(2).zfill(2)
+                year = m.group(3)
+                month_i = int(month)
+                day_i = int(day)
+                if month_i > 12 and day_i <= 12:
+                    month, day = day, month
+                return f"{year}-{month}-{day}"
+
+            # dd/mm/yy (assume day-first)
+            m = re.search(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2})", date_str)
+            if m:
+                day = m.group(1).zfill(2)
+                month = m.group(2).zfill(2)
+                year = "20" + m.group(3)
+                month_i = int(month)
+                day_i = int(day)
+                if month_i > 12 and day_i <= 12:
+                    month, day = day, month
                 return f"{year}-{month}-{day}"
         except Exception:
             pass
-        
+
         return date_str
 
     @staticmethod
@@ -330,9 +452,17 @@ class InvoiceExtractor:
             info.source_account = table_data.get("source_account") or InvoiceExtractor.extract_field(text, "source_account", InvoiceExtractor.BANK_PATTERNS)
             info.source_account_name = table_data.get("source_account_name") or InvoiceExtractor.extract_field(text, "source_account_name", InvoiceExtractor.BANK_PATTERNS)
             info.receiver_account = table_data.get("receiver_account") or InvoiceExtractor.extract_field(text, "receiver_account", InvoiceExtractor.BANK_PATTERNS)
-            info.receiver_account_name = table_data.get("receiver_account_name") or InvoiceExtractor.extract_field(text, "receiver_account_name", InvoiceExtractor.BANK_PATTERNS)
+            receiver_name = InvoiceExtractor._clean_name(table_data.get("receiver_account_name"))
+            if not InvoiceExtractor._is_valid_name(receiver_name):
+                receiver_name = InvoiceExtractor._clean_name(
+                    InvoiceExtractor.extract_field(text, "receiver_account_name", InvoiceExtractor.BANK_PATTERNS)
+                )
+            if InvoiceExtractor._is_valid_name(receiver_name):
+                info.receiver_account_name = receiver_name
             info.transaction_reference = table_data.get("transaction_reference") or InvoiceExtractor.extract_field(text, "transaction_reference", InvoiceExtractor.BANK_PATTERNS)
             info.transaction_type = table_data.get("transaction_type") or InvoiceExtractor.extract_field(text, "transaction_type", InvoiceExtractor.BANK_PATTERNS)
+            if table_data.get("transaction_date"):
+                info.transaction_date = InvoiceExtractor.parse_date(table_data.get("transaction_date"))
             
             if table_data.get("transaction_time"):
                 parts = table_data["transaction_time"].split(",")
@@ -373,6 +503,10 @@ class InvoiceExtractor:
                 info.currency = currency.upper()
         
         info.status = InvoiceExtractor.extract_field(text, "status", InvoiceExtractor.BANK_PATTERNS)
+
+        if not info.transaction_date:
+            fallback_date = InvoiceExtractor.extract_field(text, "transaction_date", InvoiceExtractor.BANK_PATTERNS)
+            info.transaction_date = InvoiceExtractor.parse_date(fallback_date)
         
         filled_fields = sum(1 for k, v in info.__dict__.items() 
                           if v is not None and k not in ["raw_text", "confidence", "extraction_errors", "currency"])
@@ -409,6 +543,47 @@ class InvoiceExtractor:
                     if len(ref_value) >= 5 and any(c.isdigit() for c in ref_value):
                         result["transaction_reference"] = ref_value
                         break
+
+        date_patterns = [
+            r'Transaction\s*(?:Date|Time)[:\s]*([0-9]{2}/[0-9]{2}/[0-9]{4})',
+            r'Date[:\s]*([0-9]{4}[-/][0-9]{2}[-/][0-9]{2})',
+            r'([0-9]{4}[-/][0-9]{2}[-/][0-9]{2})',
+            r'([0-9]{4}[-/][0-9]{1,2}[-/][0-9]{1,2})',
+            r'([0-9]{2}/[0-9]{2}/[0-9]{4})',
+            r'([0-9]{2}-[0-9]{2}-[0-9]{4})',
+            r'([0-9]{4}-[0-9]{2}-[0-9]{2})[0-9]{2}:[0-9]{2}:[0-9]{2}',
+            r'([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})[0-9]{1,2}:[0-9]{2}',
+            r'([0-9]{1,2}/[0-9]{1,2}/[0-9]{2})',
+            r'([0-9]{1,2}-[A-Za-z]{3}-[0-9]{4})',
+            r'([0-9]{2}[A-Za-z]{3}[0-9]{4})',
+            r'([A-Za-z]+ [0-9]{1,2}, [0-9]{4})',
+        ]
+        for date_pattern in date_patterns:
+            date_match = re.search(date_pattern, text, re.IGNORECASE)
+            if date_match:
+                result["transaction_date"] = date_match.group(1).strip()
+                break
+
+        account_patterns = [
+            r'Receiver\s*Account[:\s]*([\d\*]{6,})',
+            r'(?:To|Beneficiary)\s*Account[:\s]*([\d\*]{6,})',
+            r'Receiver\s+[A-Za-z\u4e00-\u9fff\s/\-\.]+?\s*Account[:\s]*([\d\*]{4,})',
+            r'收款账号[:：]?\s*([\d\*]{6,})',
+            r'Account\s*No\.?[:\s]*([\d\*]{6,})',
+            r'Cr\.?\s*AcctNo[:\s]*([0-9]{6,})',
+            r'Cr\.?\s*A[cg]t?c?tNo[:\s]*([0-9]{6,})',
+            r'Cr\.?\s*A\w{0,3}tNo[:\s]*([0-9]{6,})',
+            r'([0-9]{6,})\s*Cr\.?\s*A\w{0,3}tNo',
+            r'Credit\s*Account[:\s]*([0-9]{6,})',
+            r'CREDITACCOUNT[:\s]*([0-9]{6,})',
+            r'\bto\s*([0-9]{8,})\b',
+            r'([0-9\*]{4,})\s*Receiver\s*Account',
+        ]
+        for acc_pattern in account_patterns:
+            acc_match = re.search(acc_pattern, text, re.IGNORECASE)
+            if acc_match:
+                result["receiver_account"] = acc_match.group(1).strip()
+                break
         
         def fix_amount(amount_str):
             amount_str = amount_str.replace(',', '')
@@ -524,28 +699,70 @@ class InvoiceExtractor:
                 break
         
         name_patterns = [
-            r'(\d{1,4}\*+\d{3,4})\s+([A-Z][A-Za-z\u4e00-\u9fff\s/\-\.]+?)(?=\s+[A-Z]{3}\s+[\d,]|\s+\d{2}/\d{2}/\d{4})',
-            r'From[:\s]*([A-Z][A-Za-z\u4e00-\u9fff\s/\-\.]+?)(?=\s+Account|\s+\d{1,4}\*)',
-            r'To[:\s]*([A-Z][A-Za-z\u4e00-\u9fff\s/\-\.]+?)(?=\s+Account|\s+\d{1,4}\*)',
-            r'Name[:\s]*([A-Z][A-Za-z\u4e00-\u9fff\s/\-\.]+?)(?=\s+[A-Z]{3}|\s+\d)',
-            r'Sender[:\s]*([A-Z][A-Za-z\u4e00-\u9fff\s/\-\.]+?)(?=\s+[A-Z]{3}|\s+\d)',
-            r'Receiver[:\s]*([A-Z][A-Za-z\u4e00-\u9fff\s/\-\.]+?)(?=\s+[A-Z]{3}|\s+\d)',
+            r'(\d{1,4}\*+\d{3,4})\s+([A-Z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)(?=\s+[A-Z]{3}\s+[\d,]|\s+\d{2}/\d{2}/\d{4})',
+            r'From[:\s]*([A-Z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)(?=\s+Account|\s+\d{1,4}\*)',
+            r'To[:\s]*([A-Z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)(?=\s+Account|\s+\d{1,4}\*)',
+            r'Name[:\s]*([A-Z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)(?=\s+[A-Z]{3}|\s+\d)',
+            r'Sender[:\s]*([A-Z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)(?=\s+[A-Z]{3}|\s+\d)',
+            r'Receiver[:\s]*([A-Z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)(?=\s+[A-Z]{3}|\s+\d)',
+            r'for\s*([A-Z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)(?=\s*(?:on|with|ETB|USD|EUR|CNY|[0-9]))',
+            r'\bto\s*([A-Z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)(?=\s+[A-Z]{3}|\s+\d)',
         ]
         names = []
         for np in name_patterns:
-            name_matches = re.findall(np, text)
+            name_matches = re.findall(np, text, re.IGNORECASE)
             for match in name_matches:
                 if isinstance(match, tuple):
                     name = match[1].strip() if len(match) > 1 else match[0].strip()
                 else:
                     name = match.strip()
+                name = InvoiceExtractor._clean_name(name)
                 if name and len(name) > 2:
                     names.append(name)
         names = list(dict.fromkeys(names))
-        if len(names) >= 1:
+        if len(names) >= 1 and InvoiceExtractor._is_valid_name(names[0]):
             result["source_account_name"] = names[0]
-        if len(names) >= 2:
+        if len(names) >= 2 and InvoiceExtractor._is_valid_name(names[1]):
             result["receiver_account_name"] = names[1]
+
+        if not result.get("receiver_account_name"):
+            for_match = re.search(
+                r'for\s*([A-Z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)(?=\s*(?:on|with|ETB|USD|EUR|CNY|[0-9]))',
+                text, re.IGNORECASE
+            )
+            if for_match:
+                candidate = InvoiceExtractor._clean_name(for_match.group(1).strip())
+                if InvoiceExtractor._is_valid_name(candidate):
+                    result["receiver_account_name"] = candidate
+        if not result.get("receiver_account_name"):
+            to_match = re.search(
+                r'\bto\s*([A-Z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)(?=\s+[A-Z]{3}|\s+\d)',
+                text, re.IGNORECASE
+            )
+            if to_match:
+                candidate = InvoiceExtractor._clean_name(to_match.group(1).strip())
+                if InvoiceExtractor._is_valid_name(candidate):
+                    result["receiver_account_name"] = candidate
+
+        if not result.get("receiver_account_name"):
+            to_match = re.search(
+                r'(?<![A-Za-z])TO\s+([A-Z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]{3,})',
+                text
+            )
+            if to_match:
+                candidate = InvoiceExtractor._clean_name(to_match.group(1).strip())
+                if InvoiceExtractor._is_valid_name(candidate):
+                    result["receiver_account_name"] = candidate
+
+        if not result.get("receiver_account_name"):
+            cr_name_match = re.search(
+                r'Cr\.?\s*A\w{0,3}tNo[:\s]*([A-Za-z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)(?=\s+Acct|\s+Name|$)',
+                text, re.IGNORECASE
+            )
+            if cr_name_match:
+                candidate = InvoiceExtractor._clean_name(cr_name_match.group(1).strip())
+                if InvoiceExtractor._is_valid_name(candidate):
+                    result["receiver_account_name"] = candidate
         
         return result
 

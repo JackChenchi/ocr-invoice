@@ -21,6 +21,32 @@
     </template>
     
     <div class="filter-bar">
+      <el-popover placement="bottom-start" width="240" trigger="click">
+        <template #reference>
+          <el-button>{{ t('list.exportFields') }}</el-button>
+        </template>
+        <el-checkbox-group v-model="exportFields">
+          <el-checkbox label="transaction_reference">{{ t('list.transactionCode') }}</el-checkbox>
+          <el-checkbox label="transaction_date">{{ t('list.transactionDate') }}</el-checkbox>
+          <el-checkbox label="receiver_account">{{ t('list.receiverAccount') }}</el-checkbox>
+          <el-checkbox label="total_amount">{{ t('list.amount') }}</el-checkbox>
+          <el-checkbox label="currency">{{ t('list.currency') }}</el-checkbox>
+          <el-checkbox label="image_url">{{ t('list.image') }}</el-checkbox>
+          <el-checkbox label="needs_review">{{ t('list.needsReview') }}</el-checkbox>
+        </el-checkbox-group>
+        <div class="export-options">
+          <el-checkbox v-model="includeImages">{{ t('list.includeImages') }}</el-checkbox>
+        </div>
+      </el-popover>
+      <el-date-picker
+        v-model="filters.dateRange"
+        type="daterange"
+        range-separator="-"
+        :start-placeholder="t('list.startDate')"
+        :end-placeholder="t('list.endDate')"
+        value-format="YYYY-MM-DD"
+        style="margin-left: 10px; width: 260px"
+      />
       <el-select v-model="filters.status" :placeholder="t('list.statusFilter')" clearable @change="loadData" style="width: 150px">
         <el-option :label="t('list.recognizeSuccess')" value="completed" />
         <el-option :label="t('list.recognizeFailed')" value="failed" />
@@ -30,6 +56,7 @@
         <el-option :label="t('list.isInvoice')" :value="true" />
         <el-option :label="t('list.notInvoice')" :value="false" />
       </el-select>
+      <el-button style="margin-left: 10px" @click="loadData">{{ t('common.search') }}</el-button>
     </div>
     
     <el-table
@@ -38,8 +65,9 @@
       @selection-change="handleSelectionChange"
       v-loading="loading"
     >
-      <el-table-column type="selection" width="55" align="center" />
-      <el-table-column :label="t('list.image')" width="100" align="center">
+      <el-table-column type="selection" width="55" align="left" />
+      <el-table-column prop="id" label="ID" width="80" align="left" />
+      <el-table-column :label="t('list.image')" width="100" align="left">
         <template #default="scope">
           <div 
             v-if="scope.row.image_url"
@@ -61,19 +89,39 @@
           <span v-else>-</span>
         </template>
       </el-table-column>
-      <el-table-column prop="transaction_reference" :label="t('list.transactionCode')" min-width="180" align="center" show-overflow-tooltip>
+      <el-table-column prop="transaction_reference" :label="t('list.transactionCode')" min-width="180" align="left" show-overflow-tooltip>
         <template #default="scope">
           <span v-if="scope.row.transaction_reference">{{ scope.row.transaction_reference }}</span>
           <span v-else style="color: #999;">[{{ t('list.missing') }}]</span>
         </template>
       </el-table-column>
-      <el-table-column :label="t('list.amount')" min-width="150" align="center">
+      <el-table-column :label="t('list.transactionDate')" min-width="140" align="left">
+        <template #default="scope">
+          <span v-if="scope.row.transaction_date">{{ scope.row.transaction_date }}</span>
+          <span v-else style="color: #999;">[{{ t('list.missing') }}]</span>
+        </template>
+      </el-table-column>
+      <el-table-column :label="t('list.receiverAccount')" min-width="180" align="left" show-overflow-tooltip>
+        <template #default="scope">
+          <span v-if="scope.row.receiver_account">{{ scope.row.receiver_account }}</span>
+          <span v-else-if="scope.row.receiver_account_name">{{ scope.row.receiver_account_name }}</span>
+          <span v-else style="color: #999;">[{{ t('list.missing') }}]</span>
+        </template>
+      </el-table-column>
+      <el-table-column :label="t('list.needsReview')" min-width="120" align="left">
+        <template #default="scope">
+          <el-tag :type="scope.row.needs_review ? 'danger' : 'success'">
+            {{ scope.row.needs_review ? t('list.reviewYes') : t('list.reviewNo') }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column :label="t('list.amount')" min-width="150" align="left">
         <template #default="scope">
           <span v-if="scope.row.total_amount">{{ scope.row.currency || 'ETB' }} {{ scope.row.total_amount }}</span>
           <span v-else style="color: #999;">[{{ t('list.missing') }}]</span>
         </template>
       </el-table-column>
-      <el-table-column :label="t('common.actions')" width="120" align="center" fixed="right">
+      <el-table-column :label="t('common.actions')" width="120" align="left" fixed="right">
         <template #default="scope">
           <el-button type="primary" link size="small" @click="showDetail(scope.row)">
             {{ t('common.detail') }}
@@ -115,9 +163,26 @@
           </el-image>
         </div>
         <el-descriptions :column="1" border>
+          <el-descriptions-item label="ID">
+            <span>{{ currentInvoice.id }}</span>
+          </el-descriptions-item>
           <el-descriptions-item :label="t('list.transactionCode')">
             <span v-if="currentInvoice.transaction_reference">{{ currentInvoice.transaction_reference }}</span>
             <span v-else style="color: #999;">[{{ t('list.missing') }}]</span>
+          </el-descriptions-item>
+          <el-descriptions-item :label="t('list.transactionDate')">
+            <span v-if="currentInvoice.transaction_date">{{ currentInvoice.transaction_date }}</span>
+            <span v-else style="color: #999;">[{{ t('list.missing') }}]</span>
+          </el-descriptions-item>
+          <el-descriptions-item :label="t('list.receiverAccount')">
+            <span v-if="currentInvoice.receiver_account">{{ currentInvoice.receiver_account }}</span>
+            <span v-else-if="currentInvoice.receiver_account_name">{{ currentInvoice.receiver_account_name }}</span>
+            <span v-else style="color: #999;">[{{ t('list.missing') }}]</span>
+          </el-descriptions-item>
+          <el-descriptions-item :label="t('list.needsReview')">
+            <el-tag :type="currentInvoice.needs_review ? 'danger' : 'success'">
+              {{ currentInvoice.needs_review ? t('list.reviewYes') : t('list.reviewNo') }}
+            </el-tag>
           </el-descriptions-item>
           <el-descriptions-item :label="t('list.amount')">
             <span v-if="currentInvoice.total_amount">{{ currentInvoice.currency || 'ETB' }} {{ currentInvoice.total_amount }}</span>
@@ -193,8 +258,19 @@ const pagination = ref({
 
 const filters = ref({
   status: null,
-  isInvoice: null
+  isInvoice: null,
+  dateRange: []
 })
+
+const exportFields = ref([
+  'transaction_reference',
+  'transaction_date',
+  'receiver_account',
+  'total_amount',
+  'currency',
+  'image_url'
+])
+const includeImages = ref(false)
 
 const loadData = async () => {
   loading.value = true
@@ -203,7 +279,8 @@ const loadData = async () => {
       pagination.value.page,
       pagination.value.pageSize,
       filters.value.status,
-      filters.value.isInvoice
+      filters.value.isInvoice,
+      filters.value.dateRange
     )
     invoices.value = response.data.items
     pagination.value.total = response.data.total
@@ -268,7 +345,13 @@ const exportSelected = async () => {
   
   try {
     const ids = selectedInvoices.value.map(inv => inv.id)
-    const response = await api.exportInvoices(ids, false)
+    const response = await api.exportInvoices(
+      ids,
+      false,
+      exportFields.value,
+      filters.value.dateRange,
+      includeImages.value
+    )
     downloadExcel(response.data, t('list.invoiceData') + '.xlsx')
     ElMessage.success(t('common.success'))
   } catch (error) {
@@ -278,7 +361,13 @@ const exportSelected = async () => {
 
 const exportAll = async () => {
   try {
-    const response = await api.exportInvoices(null, true)
+    const response = await api.exportInvoices(
+      null,
+      true,
+      exportFields.value,
+      filters.value.dateRange,
+      includeImages.value
+    )
     downloadExcel(response.data, t('list.invoiceData') + '_' + t('list.all') + '.xlsx')
     ElMessage.success(t('common.success'))
   } catch (error) {
@@ -287,7 +376,10 @@ const exportAll = async () => {
 }
 
 const downloadExcel = (blob, filename) => {
-  const url = window.URL.createObjectURL(blob)
+  const fileBlob = blob instanceof Blob
+    ? blob
+    : new Blob([blob], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const url = window.URL.createObjectURL(fileBlob)
   const link = document.createElement('a')
   link.href = url
   link.download = filename
@@ -394,6 +486,10 @@ defineExpose({ loadData })
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+}
+
+.export-options {
+  margin-top: 10px;
 }
 </style>
 

@@ -15,13 +15,16 @@ from app.services.invoice_extractor import InvoiceInfo
 logger = logging.getLogger(__name__)
 
 class ExcelExporter:
-    HEADERS = [
-        ("序号", 6),
-        ("交易编码", 28),
-        ("金额", 15),
-        ("货币", 8),
-        ("图片", 30),
-    ]
+    FIELD_LABELS = {
+        "transaction_reference": ("交易编码", 28),
+        "transaction_date": ("日期", 14),
+        "receiver_account": ("收款账号/姓名", 20),
+        "total_amount": ("金额", 15),
+        "currency": ("货币", 8),
+        "image_url": ("图片", 30),
+        "validation_status": ("核对状态", 12),
+        "needs_review": ("需人工核对", 12),
+    }
     
     HEADER_FILL = PatternFill(
         start_color="4472C4",
@@ -45,8 +48,9 @@ class ExcelExporter:
         return wb
     
     @staticmethod
-    def setup_header(ws) -> None:
-        for col, (header, width) in enumerate(ExcelExporter.HEADERS, 1):
+    def setup_header(ws, fields: List[str]) -> None:
+        for col, field in enumerate(fields, 1):
+            header, width = ExcelExporter.FIELD_LABELS.get(field, (field, 12))
             cell = ws.cell(row=1, column=col, value=header)
             cell.fill = ExcelExporter.HEADER_FILL
             cell.font = ExcelExporter.HEADER_FONT
@@ -57,27 +61,30 @@ class ExcelExporter:
         ws.row_dimensions[1].height = 25
     
     @staticmethod
-    def add_invoice_row(ws, row_num: int, invoice_data: Dict[str, Any], image_dir: str = None) -> None:
-        values = [
-            row_num - 1,
-            invoice_data.get("transaction_reference", ""),
-            invoice_data.get("total_amount", ""),
-            invoice_data.get("currency", "ETB"),
-            "",
-        ]
-        
-        for col, value in enumerate(values, 1):
+    def add_invoice_row(
+        ws,
+        row_num: int,
+        invoice_data: Dict[str, Any],
+        fields: List[str],
+        image_dir: str = None,
+        include_images: bool = False
+    ) -> None:
+        for col, field in enumerate(fields, 1):
+            if field == "image_url":
+                value = ""
+            else:
+                value = invoice_data.get(field, "")
             cell = ws.cell(row=row_num, column=col, value=value)
             cell.border = ExcelExporter.BORDER
             cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
             
-            if col == 3:
+            if field == "total_amount":
                 cell.number_format = '#,##0.00'
         
         ws.row_dimensions[row_num].height = 150
         
         image_url = invoice_data.get("image_url", "")
-        if image_url:
+        if include_images and image_url and "image_url" in fields:
             if image_url.startswith("uploads") or image_url.startswith("/uploads"):
                 image_path = image_url.replace("/", os.sep).replace("\\", os.sep)
                 if image_path.startswith("uploads" + os.sep):
@@ -99,7 +106,8 @@ class ExcelExporter:
                     xl_img.width = ExcelExporter.IMAGE_SIZE[0]
                     xl_img.height = ExcelExporter.IMAGE_SIZE[1]
                     
-                    cell_address = f"E{row_num}"
+                    image_col_index = fields.index("image_url") + 1
+                    cell_address = f"{get_column_letter(image_col_index)}{row_num}"
                     ws.add_image(xl_img, cell_address)
                 except Exception as e:
                     logger.warning(f"Failed to embed image {image_path}: {e}")
@@ -109,17 +117,19 @@ class ExcelExporter:
         invoices: List[Dict[str, Any]], 
         output_path: str,
         image_dir: str = None,
-        include_summary: bool = True
+        include_summary: bool = True,
+        include_images: bool = False
     ) -> str:
         wb = ExcelExporter.create_workbook()
         ws = wb.active
         
-        ExcelExporter.setup_header(ws)
+        fields = list(ExcelExporter.FIELD_LABELS.keys())
+        ExcelExporter.setup_header(ws, fields)
         
         for idx, invoice in enumerate(invoices, 1):
-            ExcelExporter.add_invoice_row(ws, idx + 1, invoice, image_dir)
+            ExcelExporter.add_invoice_row(ws, idx + 1, invoice, fields, image_dir, include_images)
         
-        if include_summary and invoices:
+        if include_summary and invoices and "total_amount" in fields:
             summary_row = len(invoices) + 3
             ws.cell(row=summary_row, column=1, value="统计汇总")
             ws.cell(row=summary_row, column=1).font = Font(bold=True)
@@ -144,14 +154,23 @@ class ExcelExporter:
         return output_path
     
     @staticmethod
-    def export_to_bytes(invoices: List[Dict[str, Any]], image_dir: str = None) -> BytesIO:
+    def export_to_bytes(
+        invoices: List[Dict[str, Any]],
+        image_dir: str = None,
+        include_images: bool = False
+    ) -> BytesIO:
         wb = ExcelExporter.create_workbook()
         ws = wb.active
         
-        ExcelExporter.setup_header(ws)
+        fields = list(ExcelExporter.FIELD_LABELS.keys())
+        if invoices:
+            fields = [f for f in fields if f in invoices[0].keys()]
+            if not fields:
+                fields = list(ExcelExporter.FIELD_LABELS.keys())
+        ExcelExporter.setup_header(ws, fields)
         
         for idx, invoice in enumerate(invoices, 1):
-            ExcelExporter.add_invoice_row(ws, idx + 1, invoice, image_dir)
+            ExcelExporter.add_invoice_row(ws, idx + 1, invoice, fields, image_dir, include_images)
         
         buffer = BytesIO()
         wb.save(buffer)

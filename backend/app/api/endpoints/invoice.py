@@ -1,5 +1,5 @@
 from typing import Any, List
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app import models, schemas
@@ -12,13 +12,14 @@ from app.services.invoice_extractor import invoice_extractor
 from app.services.invoice_validator import invoice_validator
 from app.services.excel_exporter import excel_exporter
 from app.models.ocr import InvoiceStatus
+from app.core.config import settings
 import shutil
 import os
 import uuid
 import time
 import logging
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(deps.get_current_user)])
 logger = logging.getLogger(__name__)
 
 UPLOAD_DIR = "uploads"
@@ -27,13 +28,77 @@ if not os.path.exists(UPLOAD_DIR):
 
 ALLOWED_TYPES = ["image/jpeg", "image/png", "image/bmp", "image/tiff", "image/webp", "application/pdf"]
 
+
+def compute_needs_review(inv: models.ocr.InvoiceResult) -> bool:
+    # For bank receipts, rely on key fields rather than generic invoice validation.
+    if inv.invoice_type in ["银行转账凭证", "银行对账单"] or not inv.is_invoice:
+        critical_missing = any([
+            not inv.transaction_date,
+            not (inv.receiver_account or inv.receiver_account_name),
+            inv.total_amount is None,
+        ])
+        if critical_missing:
+            return True
+        # Soft threshold: only flag if confidence is very low.
+        if (inv.extraction_confidence or 0) < 0.4:
+            return True
+        return False
+
+    threshold = settings.OCR_CONFIDENCE_THRESHOLD
+    if (inv.extraction_confidence or 0) < threshold:
+        return True
+
+    critical_missing = any([
+        not inv.invoice_code,
+        not inv.invoice_number,
+        not inv.invoice_date,
+        inv.total_amount is None,
+    ])
+    if critical_missing:
+        return True
+    if (inv.validation_score or 0) < 0.7:
+        return True
+
+    return False
+
 def process_invoice_image(file_path: str, db_obj: models.ocr.InvoiceResult, db: Session):
     try:
         start_time = time.time()
-        
+
         processed_path = image_preprocessor.preprocess_for_ocr(file_path)
-        
-        ocr_result = ocr_service.process_image(processed_path)
+
+        def score_ocr(text: str, confidence: float) -> float:
+            length_factor = min(1.0, len(text) / 200.0)
+            return confidence * (0.5 + 0.5 * length_factor)
+
+        ocr_result = ocr_service.process_image(file_path)
+        best_score = score_ocr(ocr_result["text"], ocr_result["confidence"])
+        best_path = file_path
+
+        if processed_path and processed_path != file_path:
+            processed_result = ocr_service.process_image(processed_path)
+            processed_score = score_ocr(processed_result["text"], processed_result["confidence"])
+            if processed_score > best_score and processed_result["confidence"] >= settings.OCR_CONFIDENCE_THRESHOLD:
+                ocr_result = processed_result
+                best_score = processed_score
+                best_path = processed_path
+
+        sharpened_path = None
+        if settings.OCR_RETRY_ENABLED:
+            base, ext = os.path.splitext(file_path)
+            sharpened_path = f"{base}_processed_sharp{ext}"
+            sharpened_path = image_preprocessor.preprocess_for_ocr(
+                file_path,
+                output_path=sharpened_path,
+                sharpen=True
+            )
+            if sharpened_path and os.path.exists(sharpened_path):
+                sharpened_result = ocr_service.process_image(sharpened_path)
+                sharpened_score = score_ocr(sharpened_result["text"], sharpened_result["confidence"])
+                if (sharpened_score - best_score) >= settings.OCR_RETRY_MIN_GAIN:
+                    ocr_result = sharpened_result
+                    best_score = sharpened_score
+                    best_path = sharpened_path
         raw_text = ocr_result["text"]
         db_obj.raw_ocr_text = raw_text
         
@@ -54,6 +119,19 @@ def process_invoice_image(file_path: str, db_obj: models.ocr.InvoiceResult, db: 
                         db_obj.total_amount = invoice_extractor.parse_amount(table_data["amount"])
                 elif table_data.get("currency"):
                     db_obj.currency = table_data.get("currency")
+            bank_info = invoice_extractor.extract_bank_receipt(raw_text)
+            db_obj.bank_name = bank_info.bank_name
+            db_obj.transaction_date = bank_info.transaction_date
+            db_obj.transaction_time = bank_info.transaction_time
+            db_obj.transaction_type = bank_info.transaction_type
+            db_obj.source_account = bank_info.source_account
+            db_obj.source_account_name = bank_info.source_account_name
+            db_obj.receiver_account = bank_info.receiver_account
+            db_obj.receiver_account_name = bank_info.receiver_account_name
+            if bank_info.amount:
+                db_obj.total_amount = bank_info.amount
+                db_obj.currency = bank_info.currency
+            db_obj.extraction_confidence = bank_info.confidence
             db_obj.status = InvoiceStatus.NOT_INVOICE
             db_obj.error_msg = "上传的图片不是有效票据类型"
             db_obj.process_time = time.time() - start_time
@@ -78,6 +156,7 @@ def process_invoice_image(file_path: str, db_obj: models.ocr.InvoiceResult, db: 
             db_obj.total_amount = bank_info.amount
             db_obj.currency = bank_info.currency
             db_obj.extraction_confidence = bank_info.confidence
+            db_obj.validation_score = bank_info.confidence
         else:
             invoice_info = invoice_extractor.extract(raw_text)
             
@@ -104,10 +183,12 @@ def process_invoice_image(file_path: str, db_obj: models.ocr.InvoiceResult, db: 
         db_obj.process_time = time.time() - start_time
         db.commit()
         db.refresh(db_obj)
-        
+
         if processed_path != file_path and os.path.exists(processed_path):
             os.remove(processed_path)
-        
+        if sharpened_path and sharpened_path != file_path and os.path.exists(sharpened_path):
+            os.remove(sharpened_path)
+
         return db_obj
         
     except Exception as e:
@@ -122,7 +203,8 @@ def process_invoice_image(file_path: str, db_obj: models.ocr.InvoiceResult, db: 
 def upload_invoice(
     *,
     db: Session = Depends(deps.get_db),
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    current_user=Depends(deps.get_current_user)
 ) -> Any:
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(
@@ -143,7 +225,8 @@ def upload_invoice(
         file_name=file.filename,
         file_size=file_size,
         status=InvoiceStatus.PROCESSING,
-        image_url=file_path
+        image_url=file_path,
+        user_id=current_user.id
     )
     db.add(db_obj)
     db.commit()
@@ -155,7 +238,8 @@ def upload_invoice(
 def batch_upload_invoices(
     *,
     db: Session = Depends(deps.get_db),
-    files: List[UploadFile] = File(...)
+    files: List[UploadFile] = File(...),
+    current_user=Depends(deps.get_current_user)
 ) -> Any:
     success_count = 0
     failed_count = 0
@@ -185,7 +269,8 @@ def batch_upload_invoices(
                 file_name=file.filename,
                 file_size=file_size,
                 status=InvoiceStatus.PROCESSING,
-                image_url=file_path
+                image_url=file_path,
+                user_id=current_user.id
             )
             db.add(db_obj)
             db.commit()
@@ -221,19 +306,40 @@ def list_invoices(
     page_size: int = Query(20, ge=1, le=100),
     status: InvoiceStatus = None,
     is_invoice: bool = None,
+    date_from: str = None,
+    date_to: str = None,
+    current_user=Depends(deps.get_current_user),
 ) -> Any:
     query = db.query(models.ocr.InvoiceResult)
+    if not current_user.is_admin:
+        query = query.filter(models.ocr.InvoiceResult.user_id == current_user.id)
     
     if status:
         query = query.filter(models.ocr.InvoiceResult.status == status)
     if is_invoice is not None:
         query = query.filter(models.ocr.InvoiceResult.is_invoice == is_invoice)
+    from datetime import datetime, timedelta
+    if date_from:
+        try:
+            start_dt = datetime.strptime(date_from, "%Y-%m-%d")
+            query = query.filter(models.ocr.InvoiceResult.upload_time >= start_dt)
+        except Exception:
+            pass
+    if date_to:
+        try:
+            end_dt = datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1)
+            query = query.filter(models.ocr.InvoiceResult.upload_time < end_dt)
+        except Exception:
+            pass
     
     total = query.count()
     items = query.order_by(models.ocr.InvoiceResult.upload_time.desc()) \
         .offset((page - 1) * page_size) \
         .limit(page_size) \
         .all()
+
+    for item in items:
+        setattr(item, "needs_review", compute_needs_review(item))
     
     return ocr_schema.InvoiceListResponse(
         items=[ocr_schema.InvoiceResultResponse.model_validate(item) for item in items],
@@ -247,18 +353,27 @@ def get_invoice(
     *,
     db: Session = Depends(deps.get_db),
     id: int,
+    current_user=Depends(deps.get_current_user),
 ) -> Any:
-    result = db.query(models.ocr.InvoiceResult).filter(models.ocr.InvoiceResult.id == id).first()
+    query = db.query(models.ocr.InvoiceResult).filter(models.ocr.InvoiceResult.id == id)
+    if not current_user.is_admin:
+        query = query.filter(models.ocr.InvoiceResult.user_id == current_user.id)
+    result = query.first()
     if not result:
         raise HTTPException(status_code=404, detail="发票记录不存在")
+    setattr(result, "needs_review", compute_needs_review(result))
     return result
 
 @router.delete("/batch/all")
 def delete_all_invoices(
     *,
     db: Session = Depends(deps.get_db),
+    current_user=Depends(deps.get_current_user),
 ) -> Any:
-    results = db.query(models.ocr.InvoiceResult).all()
+    query = db.query(models.ocr.InvoiceResult)
+    if not current_user.is_admin:
+        query = query.filter(models.ocr.InvoiceResult.user_id == current_user.id)
+    results = query.all()
     deleted_count = 0
     
     for result in results:
@@ -278,8 +393,12 @@ def delete_invoice(
     *,
     db: Session = Depends(deps.get_db),
     id: int,
+    current_user=Depends(deps.get_current_user),
 ) -> Any:
-    result = db.query(models.ocr.InvoiceResult).filter(models.ocr.InvoiceResult.id == id).first()
+    query = db.query(models.ocr.InvoiceResult).filter(models.ocr.InvoiceResult.id == id)
+    if not current_user.is_admin:
+        query = query.filter(models.ocr.InvoiceResult.user_id == current_user.id)
+    result = query.first()
     if not result:
         raise HTTPException(status_code=404, detail="发票记录不存在")
     
@@ -295,13 +414,33 @@ def export_invoices(
     *,
     db: Session = Depends(deps.get_db),
     request: ocr_schema.InvoiceExportRequest,
+    current_user=Depends(deps.get_current_user),
 ) -> Any:
+    def build_query():
+        base_query = db.query(models.ocr.InvoiceResult)
+        if not current_user.is_admin:
+            base_query = base_query.filter(models.ocr.InvoiceResult.user_id == current_user.id)
+        from datetime import datetime, timedelta
+        if request.date_from:
+            try:
+                start_dt = datetime.strptime(request.date_from, "%Y-%m-%d")
+                base_query = base_query.filter(models.ocr.InvoiceResult.upload_time >= start_dt)
+            except Exception:
+                pass
+        if request.date_to:
+            try:
+                end_dt = datetime.strptime(request.date_to, "%Y-%m-%d") + timedelta(days=1)
+                base_query = base_query.filter(models.ocr.InvoiceResult.upload_time < end_dt)
+            except Exception:
+                pass
+        return base_query
+
     if request.export_all:
-        invoices = db.query(models.ocr.InvoiceResult).filter(
+        invoices = build_query().filter(
             models.ocr.InvoiceResult.status.in_([InvoiceStatus.COMPLETED, InvoiceStatus.NOT_INVOICE])
         ).all()
     elif request.invoice_ids:
-        invoices = db.query(models.ocr.InvoiceResult).filter(
+        invoices = build_query().filter(
             models.ocr.InvoiceResult.id.in_(request.invoice_ids)
         ).all()
     else:
@@ -310,18 +449,57 @@ def export_invoices(
     if not invoices:
         raise HTTPException(status_code=404, detail="没有可导出的数据")
     
+    allowed_fields = {
+        "transaction_reference",
+        "transaction_date",
+        "receiver_account",
+        "total_amount",
+        "currency",
+        "image_url",
+        "validation_status",
+        "needs_review",
+    }
+    requested_fields = [f for f in (request.fields or []) if f in allowed_fields]
+    if not requested_fields:
+        requested_fields = [
+            "transaction_reference",
+            "transaction_date",
+            "receiver_account",
+            "total_amount",
+            "currency",
+            "image_url",
+        ]
+    if not request.include_images and "image_url" in requested_fields:
+        requested_fields = [f for f in requested_fields if f != "image_url"]
+
     invoice_data = []
     for inv in invoices:
         validation_status = "有效" if (inv.validation_score or 0) >= 0.7 else "需人工核对"
-        invoice_data.append({
+        record_date = inv.transaction_date or inv.invoice_date or ""
+        receiver_display = inv.receiver_account or inv.receiver_account_name or ""
+        needs_review = compute_needs_review(inv)
+        row = {
             "transaction_reference": inv.transaction_reference or "",
+            "transaction_date": record_date,
+            "receiver_account": receiver_display,
             "total_amount": inv.total_amount,
             "currency": inv.currency or "ETB",
             "image_url": inv.image_url or "",
             "validation_status": validation_status,
-        })
+            "needs_review": "是" if needs_review else "否",
+        }
+        filtered_row = {k: row.get(k, "") for k in requested_fields}
+        invoice_data.append(filtered_row)
     
-    buffer = excel_exporter.export_to_bytes(invoice_data, image_dir=UPLOAD_DIR)
+    try:
+        buffer = excel_exporter.export_to_bytes(
+            invoice_data,
+            image_dir=UPLOAD_DIR,
+            include_images=request.include_images
+        )
+    except Exception as e:
+        logger.error(f"Export failed: {e}")
+        raise HTTPException(status_code=500, detail="导出失败，请稍后重试")
     
     from urllib.parse import quote
     filename = excel_exporter.generate_filename("data_export")
@@ -372,3 +550,44 @@ def get_statistics(
         "total_amount": total_amount_sum,
         "total_tax": total_tax_sum,
     }
+
+
+@router.get("/statistics/fields")
+def get_field_statistics(
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    total = db.query(models.ocr.InvoiceResult).count()
+    if total == 0:
+        return {"total": 0, "fields": {}}
+
+    def count_missing(filter_condition):
+        return db.query(models.ocr.InvoiceResult).filter(filter_condition).count()
+
+    fields = {
+        "transaction_date": count_missing(
+            (models.ocr.InvoiceResult.transaction_date == None) | (models.ocr.InvoiceResult.transaction_date == "")
+        ),
+        "receiver_account": count_missing(
+            (models.ocr.InvoiceResult.receiver_account == None) | (models.ocr.InvoiceResult.receiver_account == "")
+        ),
+        "receiver_account_name": count_missing(
+            (models.ocr.InvoiceResult.receiver_account_name == None) | (models.ocr.InvoiceResult.receiver_account_name == "")
+        ),
+        "transaction_reference": count_missing(
+            (models.ocr.InvoiceResult.transaction_reference == None) | (models.ocr.InvoiceResult.transaction_reference == "")
+        ),
+        "total_amount": count_missing(
+            (models.ocr.InvoiceResult.total_amount == None)
+        ),
+        "invoice_date": count_missing(
+            (models.ocr.InvoiceResult.invoice_date == None) | (models.ocr.InvoiceResult.invoice_date == "")
+        ),
+        "invoice_code": count_missing(
+            (models.ocr.InvoiceResult.invoice_code == None) | (models.ocr.InvoiceResult.invoice_code == "")
+        ),
+        "invoice_number": count_missing(
+            (models.ocr.InvoiceResult.invoice_number == None) | (models.ocr.InvoiceResult.invoice_number == "")
+        ),
+    }
+
+    return {"total": total, "fields": fields}

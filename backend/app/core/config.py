@@ -5,7 +5,7 @@ import os
 import json
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "OCR Batch Processing System"
+    PROJECT_NAME: str = "神眼系统"
     API_V1_STR: str = "/api/v1"
     
     DATABASE_URL: str = "sqlite:///./ocr.db"
@@ -16,6 +16,16 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND: str = ""
 
     BACKEND_CORS_ORIGINS: List[str] = []
+    SECRET_KEY: str = "change-me"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 720
+    DEFAULT_ADMIN_USERNAME: str = "admin"
+    DEFAULT_ADMIN_PASSWORD: str = "admin123"
+    OCR_LANGS: str = "ch,en"
+    OCR_CONFIDENCE_THRESHOLD: float = 0.6
+    OCR_RETRY_ENABLED: bool = True
+    OCR_RETRY_MIN_GAIN: float = 0.03
+    DATA_RETENTION_DAYS: int = 365
+    IMAGE_RETENTION_DAYS: int = 180
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod

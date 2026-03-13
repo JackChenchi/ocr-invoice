@@ -20,6 +20,10 @@ dist/
 
 # DB
 mysql_data/
+backend/ocr.db
 
 # Local backup
 .local_backup/
+
+# Uploads
+backend/uploads/

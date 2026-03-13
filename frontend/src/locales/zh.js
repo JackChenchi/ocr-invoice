@@ -16,10 +16,12 @@ export default {
     search: '搜索',
     reset: '重置',
     detail: '详情',
-    actions: '操作'
+    actions: '操作',
+    yes: '是',
+    no: '否'
   },
   header: {
-    title: '发票识别与数据导出系统',
+    title: '神眼系统',
     switchLang: '切换语言'
   },
   stats: {
@@ -53,6 +55,16 @@ export default {
     notInvoice: '非发票',
     image: '图片',
     transactionCode: '交易编码',
+    transactionDate: '日期',
+    receiverAccount: '收款账号/姓名',
+    currency: '货币',
+    startDate: '开始日期',
+    endDate: '结束日期',
+    exportFields: '导出字段',
+    includeImages: '包含图片（较慢）',
+    needsReview: '需人工核对',
+    reviewYes: '是',
+    reviewNo: '否',
     amount: '金额',
     missing: '缺失',
     imageLoadFailed: '图片加载失败',
@@ -65,6 +77,27 @@ export default {
     recognizeSuccess: '识别成功',
     recognizeFailed: '识别失败',
     processing: '处理中'
+  },
+  auth: {
+    title: '账号登录',
+    username: '账号',
+    password: '密码',
+    login: '登录',
+    logout: '退出登录',
+    loginFailed: '登录失败，请检查账号密码'
+  },
+  user: {
+    title: '用户管理',
+    manage: '用户管理',
+    adminOnly: '仅管理员可用',
+    username: '账号',
+    password: '密码',
+    isAdmin: '管理员',
+    create: '创建用户',
+    fillAll: '请填写账号和密码',
+    list: '用户列表',
+    delete: '删除',
+    confirmDelete: '确定要删除该用户吗？'
   },
   invoice: {
     invoiceNumber: '发票号码',

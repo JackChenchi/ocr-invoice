@@ -2,10 +2,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from app.api.endpoints import ocr, invoice
+from app.api.endpoints import ocr, invoice, auth, admin
 from app.core.config import settings
 from app.db.base_class import Base
-from app.db.session import engine
+from app.db.session import engine, SessionLocal
+from app.crud import user as user_crud
+from app.models.user import User
 import os
 
 app = FastAPI(title=settings.PROJECT_NAME, openapi_url=f"{settings.API_V1_STR}/openapi.json")
@@ -23,13 +25,49 @@ app.add_middleware(
 
 Base.metadata.create_all(bind=engine)
 
+def ensure_invoice_user_id_column():
+    try:
+        if settings.DATABASE_URL.startswith("sqlite"):
+            import sqlite3
+            db_path = settings.DATABASE_URL.replace("sqlite:///", "")
+            con = sqlite3.connect(db_path)
+            cur = con.cursor()
+            cur.execute("PRAGMA table_info(invoice_results)")
+            cols = [row[1] for row in cur.fetchall()]
+            if "user_id" not in cols:
+                cur.execute("ALTER TABLE invoice_results ADD COLUMN user_id INTEGER")
+                con.commit()
+            con.close()
+    except Exception:
+        pass
+
+ensure_invoice_user_id_column()
+
+def ensure_default_admin():
+    db = SessionLocal()
+    try:
+        has_user = db.query(User).first() is not None
+        if not has_user:
+            user_crud.create_user(
+                db,
+                settings.DEFAULT_ADMIN_USERNAME,
+                settings.DEFAULT_ADMIN_PASSWORD,
+                is_admin=True,
+            )
+    finally:
+        db.close()
+
+ensure_default_admin()
+
 upload_dir = "uploads"
 if not os.path.exists(upload_dir):
     os.makedirs(upload_dir)
 app.mount("/api/uploads", StaticFiles(directory=upload_dir), name="uploads")
 
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(ocr.router, prefix="/api/ocr", tags=["ocr"])
 app.include_router(invoice.router, prefix="/api/invoice", tags=["invoice"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 @app.get("/api")
 def api_root():
