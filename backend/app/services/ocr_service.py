@@ -11,11 +11,21 @@ logger = logging.getLogger(__name__)
 
 _ocr_instances = {}
 
+# Avoid MKLDNN/oneDNN CPU primitive errors on some cloud CPUs
+os.environ.setdefault("FLAGS_use_mkldnn", "1" if settings.OCR_USE_MKLDNN else "0")
+os.environ.setdefault("OMP_NUM_THREADS", str(settings.OCR_OMP_NUM_THREADS))
+
 def _get_ocr_instance(lang: str):
     global _ocr_instances
     if lang not in _ocr_instances:
         from paddleocr import PaddleOCR
-        _ocr_instances[lang] = PaddleOCR(lang=lang)
+        _ocr_instances[lang] = PaddleOCR(
+            lang=lang,
+            use_angle_cls=settings.OCR_USE_ANGLE_CLS,
+            use_gpu=settings.OCR_USE_GPU,
+            use_mkldnn=settings.OCR_USE_MKLDNN,
+            show_log=False,
+        )
     return _ocr_instances[lang]
 
 def _preprocess_image(image_path: str) -> str:

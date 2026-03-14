@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     OCR_CONFIDENCE_THRESHOLD: float = 0.6
     OCR_RETRY_ENABLED: bool = True
     OCR_RETRY_MIN_GAIN: float = 0.03
+    OCR_USE_MKLDNN: bool = False
+    OCR_USE_GPU: bool = False
+    OCR_USE_ANGLE_CLS: bool = False
+    OCR_OMP_NUM_THREADS: int = 1
     DATA_RETENTION_DAYS: int = 365
     IMAGE_RETENTION_DAYS: int = 180
 
