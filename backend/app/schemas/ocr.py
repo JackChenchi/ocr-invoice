@@ -77,7 +77,6 @@ class InvoiceResultResponse(InvoiceResultBase):
     transaction_date: Optional[str] = None
     transaction_time: Optional[str] = None
     receiver_account: Optional[str] = None
-    receiver_account_name: Optional[str] = None
     
     is_invoice: bool = True
     invoice_confidence: float = 0.0
@@ -102,7 +101,7 @@ class InvoiceExportRequest(BaseModel):
     fields: Optional[List[str]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
-    include_images: bool = False
+    include_images: bool = True
 
 class BatchUploadResponse(BaseModel):
     success_count: int

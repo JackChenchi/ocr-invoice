@@ -56,7 +56,7 @@ export default {
     image: '图片',
     transactionCode: '交易编码',
     transactionDate: '日期',
-    receiverAccount: '收款账号/姓名',
+    receiverAccount: '账户',
     currency: '货币',
     startDate: '开始日期',
     endDate: '结束日期',

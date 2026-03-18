@@ -517,6 +517,8 @@ class InvoiceExtractor:
     @staticmethod
     def _parse_bank_table(text: str) -> Dict[str, str]:
         result = {}
+        text_norm = re.sub(r"(\d)\.\s+(\d)", r"\1.\2", text or "")
+        text_norm = re.sub(r"\s+", " ", text_norm).strip()
         
         ref_patterns = [
             r'TRANSACTION\s*REF\.?\s*[:\s]*([A-Z0-9]{10,})',
@@ -536,13 +538,19 @@ class InvoiceExtractor:
             r'Account[:\s]*\**(\d{4,})',
         ]
         for ref_pattern in ref_patterns:
-            ref_match = re.search(ref_pattern, text, re.IGNORECASE)
+            ref_match = re.search(ref_pattern, text_norm, re.IGNORECASE)
             if ref_match:
                 ref_value = ref_match.group(1).strip()
                 if ref_value.upper() not in ['COMPLETED', 'PENDING', 'SUCCESS', 'FAILED', 'ERENCE', 'ERENCE']:
                     if len(ref_value) >= 5 and any(c.isdigit() for c in ref_value):
                         result["transaction_reference"] = ref_value
                         break
+        if not result.get("transaction_reference"):
+            ref_fallback = re.search(r'Transaction\s*ID[:\s]*([0-9A-Za-z][0-9A-Za-z\s\-]{7,})', text_norm, re.IGNORECASE)
+            if ref_fallback:
+                compact = re.sub(r"\s+", "", ref_fallback.group(1)).strip("-")
+                if len(compact) >= 8 and any(ch.isdigit() for ch in compact):
+                    result["transaction_reference"] = compact
 
         date_patterns = [
             r'Transaction\s*(?:Date|Time)[:\s]*([0-9]{2}/[0-9]{2}/[0-9]{4})',
@@ -559,7 +567,7 @@ class InvoiceExtractor:
             r'([A-Za-z]+ [0-9]{1,2}, [0-9]{4})',
         ]
         for date_pattern in date_patterns:
-            date_match = re.search(date_pattern, text, re.IGNORECASE)
+            date_match = re.search(date_pattern, text_norm, re.IGNORECASE)
             if date_match:
                 result["transaction_date"] = date_match.group(1).strip()
                 break
@@ -568,6 +576,8 @@ class InvoiceExtractor:
             r'Receiver\s*Account[:\s]*([\d\*]{6,})',
             r'(?:To|Beneficiary)\s*Account[:\s]*([\d\*]{6,})',
             r'Receiver\s+[A-Za-z\u4e00-\u9fff\s/\-\.]+?\s*Account[:\s]*([\d\*]{4,})',
+            r'Receiver\s*Name[:\s]*([\d\*]{6,})',
+            r'Receiver\s*Name[^0-9\*]{0,40}([\d\*]{6,})',
             r'收款账号[:：]?\s*([\d\*]{6,})',
             r'Account\s*No\.?[:\s]*([\d\*]{6,})',
             r'Cr\.?\s*AcctNo[:\s]*([0-9]{6,})',
@@ -577,10 +587,11 @@ class InvoiceExtractor:
             r'Credit\s*Account[:\s]*([0-9]{6,})',
             r'CREDITACCOUNT[:\s]*([0-9]{6,})',
             r'\bto\s*([0-9]{8,})\b',
+            r'([0-9]{4,}\*{2,}[0-9]{3,})',
             r'([0-9\*]{4,})\s*Receiver\s*Account',
         ]
         for acc_pattern in account_patterns:
-            acc_match = re.search(acc_pattern, text, re.IGNORECASE)
+            acc_match = re.search(acc_pattern, text_norm, re.IGNORECASE)
             if acc_match:
                 result["receiver_account"] = acc_match.group(1).strip()
                 break
@@ -599,11 +610,33 @@ class InvoiceExtractor:
         
         def is_valid_amount(amount_str):
             try:
+                if "*" in amount_str or "/" in amount_str:
+                    return False
                 val = float(amount_str)
                 return val > 0
             except:
                 return False
-        
+
+        currency_amount_candidates = []
+        for match in re.finditer(r'(ETB|USD|EUR|CNY|GBP|JPY)\s*([\d,]+(?:\.\d{1,2})?)', text_norm, re.IGNORECASE):
+            currency_amount_candidates.append((match.group(1).upper(), match.group(2)))
+        for match in re.finditer(r'([\d,]+(?:\.\d{1,2})?)\s*(ETB|USD|EUR|CNY|GBP|JPY)', text_norm, re.IGNORECASE):
+            currency_amount_candidates.append((match.group(2).upper(), match.group(1)))
+        if currency_amount_candidates:
+            def _to_float(v):
+                try:
+                    return float(v.replace(",", ""))
+                except Exception:
+                    return 0.0
+            valid_candidates = [
+                (cur, amt) for cur, amt in currency_amount_candidates
+                if _to_float(amt) > 0 and "*" not in amt and "/" not in amt
+            ]
+            if valid_candidates:
+                valid_candidates.sort(key=lambda item: _to_float(item[1]), reverse=True)
+                result["currency"] = valid_candidates[0][0]
+                result["amount"] = valid_candidates[0][1]
+
         debit_patterns = [
             r'ETB\s*(\d+[\d.]+)\s+debited',
             r'ETB\s*([\d,]+\.?\d*)\s*debited',
@@ -611,14 +644,15 @@ class InvoiceExtractor:
             r'debited[^A-Z]*?ETB\s*([\d,]+\.?\d*)',
             r'debited[^A-Z]*?([\d,]+\.?\d*)\s*ETB',
         ]
-        for pattern in debit_patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                amount_val = fix_amount(match.group(1))
-                if is_valid_amount(amount_val):
-                    result["amount"] = amount_val
-                    result["currency"] = "ETB"
-                    break
+        if not result.get("amount"):
+            for pattern in debit_patterns:
+                match = re.search(pattern, text_norm, re.IGNORECASE)
+                if match:
+                    amount_val = fix_amount(match.group(1))
+                    if is_valid_amount(amount_val):
+                        result["amount"] = amount_val
+                        result["currency"] = "ETB"
+                        break
         
         if not result.get("amount"):
             etb_patterns = [
@@ -628,7 +662,7 @@ class InvoiceExtractor:
                 r'([\d,]+)\s*ETB',
             ]
             for etb_pattern in etb_patterns:
-                etb_match = re.search(etb_pattern, text, re.IGNORECASE)
+                etb_match = re.search(etb_pattern, text_norm, re.IGNORECASE)
                 if etb_match:
                     amount_val = fix_amount(etb_match.group(1))
                     if is_valid_amount(amount_val):
@@ -647,7 +681,7 @@ class InvoiceExtractor:
                 r'Credit\s*Amt\.?[:\s]*([A-Z]{3})?\s*([\d,]+\.?\d*)',
             ]
             for amt_pattern in amount_patterns:
-                amt_match = re.search(amt_pattern, text, re.IGNORECASE)
+                amt_match = re.search(amt_pattern, text_norm, re.IGNORECASE)
                 if amt_match:
                     groups = amt_match.groups()
                     if len(groups) == 2:
@@ -693,10 +727,12 @@ class InvoiceExtractor:
             r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+Bank)',
         ]
         for bp in bank_patterns:
-            bank_match = re.search(bp, text)
+            bank_match = re.search(bp, text_norm)
             if bank_match:
-                result["bank_name"] = bank_match.group(1)
-                break
+                candidate_bank = bank_match.group(1)
+                if not re.search(r"\b(Transaction|Type|Amount|Send|To)\b", candidate_bank, re.IGNORECASE):
+                    result["bank_name"] = candidate_bank
+                    break
         
         name_patterns = [
             r'(\d{1,4}\*+\d{3,4})\s+([A-Z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)(?=\s+[A-Z]{3}\s+[\d,]|\s+\d{2}/\d{2}/\d{4})',
@@ -710,7 +746,7 @@ class InvoiceExtractor:
         ]
         names = []
         for np in name_patterns:
-            name_matches = re.findall(np, text, re.IGNORECASE)
+            name_matches = re.findall(np, text_norm, re.IGNORECASE)
             for match in name_matches:
                 if isinstance(match, tuple):
                     name = match[1].strip() if len(match) > 1 else match[0].strip()
@@ -722,42 +758,46 @@ class InvoiceExtractor:
         names = list(dict.fromkeys(names))
         if len(names) >= 1 and InvoiceExtractor._is_valid_name(names[0]):
             result["source_account_name"] = names[0]
-        if len(names) >= 2 and InvoiceExtractor._is_valid_name(names[1]):
+        if (
+            not result.get("receiver_account")
+            and len(names) >= 2
+            and InvoiceExtractor._is_valid_name(names[1])
+        ):
             result["receiver_account_name"] = names[1]
 
-        if not result.get("receiver_account_name"):
+        if not result.get("receiver_account") and not result.get("receiver_account_name"):
             for_match = re.search(
                 r'for\s*([A-Z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)(?=\s*(?:on|with|ETB|USD|EUR|CNY|[0-9]))',
-                text, re.IGNORECASE
+                text_norm, re.IGNORECASE
             )
             if for_match:
                 candidate = InvoiceExtractor._clean_name(for_match.group(1).strip())
                 if InvoiceExtractor._is_valid_name(candidate):
                     result["receiver_account_name"] = candidate
-        if not result.get("receiver_account_name"):
+        if not result.get("receiver_account") and not result.get("receiver_account_name"):
             to_match = re.search(
                 r'\bto\s*([A-Z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)(?=\s+[A-Z]{3}|\s+\d)',
-                text, re.IGNORECASE
+                text_norm, re.IGNORECASE
             )
             if to_match:
                 candidate = InvoiceExtractor._clean_name(to_match.group(1).strip())
                 if InvoiceExtractor._is_valid_name(candidate):
                     result["receiver_account_name"] = candidate
 
-        if not result.get("receiver_account_name"):
+        if not result.get("receiver_account") and not result.get("receiver_account_name"):
             to_match = re.search(
                 r'(?<![A-Za-z])TO\s+([A-Z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]{3,})',
-                text
+                text_norm
             )
             if to_match:
                 candidate = InvoiceExtractor._clean_name(to_match.group(1).strip())
                 if InvoiceExtractor._is_valid_name(candidate):
                     result["receiver_account_name"] = candidate
 
-        if not result.get("receiver_account_name"):
+        if not result.get("receiver_account") and not result.get("receiver_account_name"):
             cr_name_match = re.search(
                 r'Cr\.?\s*A\w{0,3}tNo[:\s]*([A-Za-z][A-Za-z0-9\u4e00-\u9fff\s/\-\.]+?)(?=\s+Acct|\s+Name|$)',
-                text, re.IGNORECASE
+                text_norm, re.IGNORECASE
             )
             if cr_name_match:
                 candidate = InvoiceExtractor._clean_name(cr_name_match.group(1).strip())

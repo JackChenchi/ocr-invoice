@@ -18,7 +18,7 @@ class ExcelExporter:
     FIELD_LABELS = {
         "transaction_reference": ("交易编码", 28),
         "transaction_date": ("日期", 14),
-        "receiver_account": ("收款账号/姓名", 20),
+        "receiver_account": ("账户", 20),
         "total_amount": ("金额", 15),
         "currency": ("货币", 8),
         "image_url": ("图片", 30),

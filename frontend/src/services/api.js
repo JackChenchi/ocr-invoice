@@ -93,7 +93,7 @@ export default {
     return apiClient.delete('/invoice/batch/all');
   },
   
-  exportInvoices(invoiceIds = null, exportAll = false, fields = null, dateRange = null, includeImages = false) {
+  exportInvoices(invoiceIds = null, exportAll = false, fields = null, dateRange = null, includeImages = true) {
     return apiClient.post('/invoice/export', {
       invoice_ids: invoiceIds,
       export_all: exportAll,

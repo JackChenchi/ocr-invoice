@@ -26,13 +26,13 @@
           <el-button>{{ t('list.exportFields') }}</el-button>
         </template>
         <el-checkbox-group v-model="exportFields">
-          <el-checkbox label="transaction_reference">{{ t('list.transactionCode') }}</el-checkbox>
-          <el-checkbox label="transaction_date">{{ t('list.transactionDate') }}</el-checkbox>
-          <el-checkbox label="receiver_account">{{ t('list.receiverAccount') }}</el-checkbox>
-          <el-checkbox label="total_amount">{{ t('list.amount') }}</el-checkbox>
-          <el-checkbox label="currency">{{ t('list.currency') }}</el-checkbox>
-          <el-checkbox label="image_url">{{ t('list.image') }}</el-checkbox>
-          <el-checkbox label="needs_review">{{ t('list.needsReview') }}</el-checkbox>
+          <el-checkbox value="transaction_reference">{{ t('list.transactionCode') }}</el-checkbox>
+          <el-checkbox value="transaction_date">{{ t('list.transactionDate') }}</el-checkbox>
+          <el-checkbox value="receiver_account">{{ t('list.receiverAccount') }}</el-checkbox>
+          <el-checkbox value="total_amount">{{ t('list.amount') }}</el-checkbox>
+          <el-checkbox value="currency">{{ t('list.currency') }}</el-checkbox>
+          <el-checkbox value="image_url">{{ t('list.image') }}</el-checkbox>
+          <el-checkbox value="needs_review">{{ t('list.needsReview') }}</el-checkbox>
         </el-checkbox-group>
         <div class="export-options">
           <el-checkbox v-model="includeImages">{{ t('list.includeImages') }}</el-checkbox>
@@ -104,7 +104,6 @@
       <el-table-column :label="t('list.receiverAccount')" min-width="180" align="left" show-overflow-tooltip>
         <template #default="scope">
           <span v-if="scope.row.receiver_account">{{ scope.row.receiver_account }}</span>
-          <span v-else-if="scope.row.receiver_account_name">{{ scope.row.receiver_account_name }}</span>
           <span v-else style="color: #999;">[{{ t('list.missing') }}]</span>
         </template>
       </el-table-column>
@@ -176,7 +175,6 @@
           </el-descriptions-item>
           <el-descriptions-item :label="t('list.receiverAccount')">
             <span v-if="currentInvoice.receiver_account">{{ currentInvoice.receiver_account }}</span>
-            <span v-else-if="currentInvoice.receiver_account_name">{{ currentInvoice.receiver_account_name }}</span>
             <span v-else style="color: #999;">[{{ t('list.missing') }}]</span>
           </el-descriptions-item>
           <el-descriptions-item :label="t('list.needsReview')">
@@ -270,7 +268,7 @@ const exportFields = ref([
   'currency',
   'image_url'
 ])
-const includeImages = ref(false)
+const includeImages = ref(true)
 
 const loadData = async () => {
   loading.value = true

@@ -34,7 +34,7 @@ def compute_needs_review(inv: models.ocr.InvoiceResult) -> bool:
     if inv.invoice_type in ["银行转账凭证", "银行对账单"] or not inv.is_invoice:
         critical_missing = any([
             not inv.transaction_date,
-            not (inv.receiver_account or inv.receiver_account_name),
+            not inv.receiver_account,
             inv.total_amount is None,
         ])
         if critical_missing:
@@ -127,7 +127,7 @@ def process_invoice_image(file_path: str, db_obj: models.ocr.InvoiceResult, db: 
             db_obj.source_account = bank_info.source_account
             db_obj.source_account_name = bank_info.source_account_name
             db_obj.receiver_account = bank_info.receiver_account
-            db_obj.receiver_account_name = bank_info.receiver_account_name
+            db_obj.receiver_account_name = None
             if bank_info.amount:
                 db_obj.total_amount = bank_info.amount
                 db_obj.currency = bank_info.currency
@@ -152,7 +152,7 @@ def process_invoice_image(file_path: str, db_obj: models.ocr.InvoiceResult, db: 
             db_obj.source_account = bank_info.source_account
             db_obj.source_account_name = bank_info.source_account_name
             db_obj.receiver_account = bank_info.receiver_account
-            db_obj.receiver_account_name = bank_info.receiver_account_name
+            db_obj.receiver_account_name = None
             db_obj.total_amount = bank_info.amount
             db_obj.currency = bank_info.currency
             db_obj.extraction_confidence = bank_info.confidence
@@ -476,7 +476,7 @@ def export_invoices(
     for inv in invoices:
         validation_status = "有效" if (inv.validation_score or 0) >= 0.7 else "需人工核对"
         record_date = inv.transaction_date or inv.invoice_date or ""
-        receiver_display = inv.receiver_account or inv.receiver_account_name or ""
+        receiver_display = inv.receiver_account or ""
         needs_review = compute_needs_review(inv)
         row = {
             "transaction_reference": inv.transaction_reference or "",
@@ -569,9 +569,6 @@ def get_field_statistics(
         ),
         "receiver_account": count_missing(
             (models.ocr.InvoiceResult.receiver_account == None) | (models.ocr.InvoiceResult.receiver_account == "")
-        ),
-        "receiver_account_name": count_missing(
-            (models.ocr.InvoiceResult.receiver_account_name == None) | (models.ocr.InvoiceResult.receiver_account_name == "")
         ),
         "transaction_reference": count_missing(
             (models.ocr.InvoiceResult.transaction_reference == None) | (models.ocr.InvoiceResult.transaction_reference == "")

@@ -56,7 +56,7 @@ export default {
     image: 'Image',
     transactionCode: 'Transaction Code',
     transactionDate: 'Date',
-    receiverAccount: 'Receiver Account/Name',
+    receiverAccount: 'Account',
     currency: 'Currency',
     startDate: 'Start Date',
     endDate: 'End Date',
